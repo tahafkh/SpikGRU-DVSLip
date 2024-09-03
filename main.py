@@ -3,6 +3,7 @@ To train and test the model
 """
 
 import os
+import time
 import argparse
 import numpy as np
 import torch
@@ -76,6 +77,7 @@ def train(model, loss_fn, optimizer, train_dataloader, valid_dataloader, nb_epoc
     best_val = 0; best_epoch = 0
 
     for e in range(nb_epochs):
+        epoch_start = time.time()
         local_loss = []
         train_accs = []
             
@@ -134,8 +136,23 @@ def train(model, loss_fn, optimizer, train_dataloader, valid_dataloader, nb_epoc
             best_val = valid_accuracy
             best_epoch = e
 
+        epoch_end = time.time()
+        epoch_duration = epoch_end - epoch_start
+        print("Epoch (training) took {:.3f}s".format(epoch_duration))
+
         with open('res_' + args.filename + '.txt', 'a') as f:
-            f.write("epoch %i: train: %.2f, val: %.2f, loss: %.5f, loss_reg: %.3f, lr: %.5f\n"%(e+1, train_accuracy*100, valid_accuracy*100, mean_loss, loss_act, optimizer.param_groups[0]["lr"]))
+            f.write(
+                "epoch %i: train: %.2f, val: %.2f, loss: %.5f, loss_reg: %.3f, lr: %.5f, epoch duration: %.3f\n"
+                % (
+                    e+1,
+                    train_accuracy*100, 
+                    valid_accuracy*100, 
+                    mean_loss, 
+                    loss_act, 
+                    optimizer.param_groups[0]["lr"],
+                    epoch_duration
+                )
+            )
                  
 
     with open('res_' + args.filename + '.txt', 'a') as f:
