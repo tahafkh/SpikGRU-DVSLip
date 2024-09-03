@@ -41,8 +41,8 @@ SAVE_PATH_MODEL_BEST = os.getcwd() + '/' + args.filename + '.pt'
 
 ## DATASET
 ####################################################################
-train_data_root = 'DVSLIP/train'
-test_data_root = 'DVSLIP/test'
+train_data_root = "/home/tahaf/data/DVS-Lip/train"
+test_data_root = "/home/tahaf/data/DVS-Lip/test"
 training_words = DVSLip.get_training_words()
 label_dct = {k:i for i,k in enumerate(training_words)}
 ## label_dct: {'education': 0, 'between': 1, 'london': 2, 'allow': 3, 'military': 4, 'warning': 5, 'little': 6, 'press': 7, 'missing': 8, 'numbers': 9, 'change': 10, 'support': 11, 'immigration': 12, 'started': 13, 'still': 14, 'attacks': 15, 'called': 16, 'another': 17, 'security': 18, 'minutes': 19, 'point': 20, 'general': 21, 'judge': 22, 'hundreds': 23, 'spend': 24, 'described': 25, 'million': 26, 'having': 27, 'young': 28, 'syria': 29, 'evening': 30, 'american': 31, 'difference': 32, 'russian': 33, 'taken': 34, 'potential': 35, 'russia': 36, 'terms': 37, 'banks': 38, 'leaders': 39, 'welcome': 40, 'house': 41, 'labour': 42, 'words': 43, 'challenge': 44, 'taking': 45, 'worst': 46, 'everything': 47, 'really': 48, 'needs': 49, 'america': 50, 'allowed': 51, 'under': 52, 'thing': 53, 'happened': 54, 'price': 55, 'syrian': 56, 'benefit': 57, 'paying': 58, 'right': 59, 'tomorrow': 60, 'capital': 61, 'question': 62, 'germany': 63, 'meeting': 64, 'these': 65, 'couple': 66, 'saying': 67, 'billion': 68, 'majority': 69, 'think': 70, 'accused': 71, 'giving': 72, 'action': 73, 'become': 74, 'economic': 75, 'times': 76, 'different': 77, 'perhaps': 78, 'benefits': 79, 'court': 80, 'water': 81, 'death': 82, 'during': 83, 'chief': 84, 'happen': 85, 'being': 86, 'years': 87, 'election': 88, 'ground': 89, 'england': 90, 'exactly': 91, 'should': 92, 'spent': 93, 'several': 94, 'number': 95, 'around': 96, 'significant': 97, 'legal': 98, 'heavy': 99}
