@@ -158,7 +158,7 @@ def train(model, loss_fn, optimizer, train_dataloader, valid_dataloader, nb_epoc
     with open('res_' + args.filename + '.txt', 'a') as f:
         f.write("best epoch, accu (val): %i %.2f"%(best_epoch +1, best_val*100))
         f.write('\n')
-    return
+    exit()
 
 def compute_classification_accuracy(model, dataloader, valid=False):
     """ 
@@ -200,7 +200,7 @@ def compute_classification_accuracy(model, dataloader, valid=False):
         layer_names = ["conv1", "pool1", "conv2_1", "conv2_11", "conv2_2", "conv2_21", "conv3_1", "conv3_11", "conv3_2", "conv3_21", "conv4_1", "conv4_11", "conv4_2","conv4_21","conv5_1","conv5_11","conv5_2", "conv5_21","avgpool"]
     if not args.is_test and not valid:
             with open('res_' + args.filename + '.txt', 'a') as f:
-                f.write("INPUT activity: %0.4f"%(np.mean(avg_in_act)))
+                f.write("INPUT activity: %0.4f \n"%(np.mean(avg_in_act)))
                 for i,l in enumerate(avg_spike_act):
                     f.write("avg spike activity %s: %0.4f \n"%(layer_names[i], np.mean(avg_spike_act[i])))
                 f.write("# avg spike activity ALL: %0.4f \n"%(np.mean(avg_spike_act)))
@@ -259,12 +259,12 @@ if not args.is_test:
 
 ## LOAD MODEL AND FINAL TEST
 ######################################
-model.load_state_dict(torch.load(SAVE_PATH_MODEL_BEST), strict=True)
-print("######## FILE LOADED:", SAVE_PATH_MODEL_BEST)
+# model.load_state_dict(torch.load(SAVE_PATH_MODEL_BEST), strict=True)
+# print("######## FILE LOADED:", SAVE_PATH_MODEL_BEST)
 
-test_accuracy = compute_classification_accuracy(model, test_dataloader)
-print("test accuracy:" + str(test_accuracy) + "\n")
+# test_accuracy = compute_classification_accuracy(model, test_dataloader)
+# print("test accuracy:" + str(test_accuracy) + "\n")
 
-if not args.is_test:
-    with open('res_' + args.filename + '.txt', 'a') as f:
-        f.write("\nTest accuracy(noerror) %s \n"%(test_accuracy))
+# if not args.is_test:
+#     with open('res_' + args.filename + '.txt', 'a') as f:
+#         f.write("\nTest accuracy(noerror) %s \n"%(test_accuracy))
