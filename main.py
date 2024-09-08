@@ -244,13 +244,22 @@ if not args.is_test:
     else:
         warmup_epochs = 1
 
-    params = []
+    position_params = []
+    bn_params = []
+    others_params = []
     for name, param in model.named_parameters():
-        if "bn" in name: # no weight decay on batch norm param
-            params += [{'params':param, 'lr':lr}]
+        if "bn" in name:  # no weight decay on batch norm param
+            bn_params.append(param)
+        elif name.endswith(".P") or name.endswith(".SIG") and param.requires_grad:
+            position_params.append(param)
         else:
-            params += [{'params':param, 'lr': lr, 'weight_decay':1e-4}]
-    optimizer = torch.optim.Adam(params)
+            others_params.append(param)
+    param_groups = [
+        {"params": others_params, "lr": lr, "weight_decay": 1e-4},
+        {"params": bn_params, "lr": lr, "weight_decay": 0.0},
+        {"params": position_params, "lr": lr * 100, "weight_decay": 0.0},
+    ]
+    optimizer = torch.optim.Adam(param_groups)
 
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, args.epochs, eta_min=final_lr, last_epoch=-1)
     
