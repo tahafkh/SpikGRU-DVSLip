@@ -6,6 +6,8 @@ import torch
 import torch.nn as nn
 import numpy as np
 
+from DCLS.construct.modules import Dcls3_1d
+
 Vth = 1.0
 alpha_init_gru = 0.9
 alpha_init_conv = 0.9
@@ -42,6 +44,60 @@ class SpikeAct_signed(torch.autograd.Function): ## ternact
         grad_input = grad_input * 1/scale * (1/(1+ gamma * ((x_input - Vth)**2)) \
                                             + 1/(1+ gamma * ((x_input + Vth)**2))) 
         return grad_input
+    
+class Dcls3_1_SJ(Dcls3_1d):
+    def __init__(
+        self,
+        in_channels,
+        out_channels,
+        kernel_count,
+        learn_delay=True,
+        stride=1,
+        spatial_padding=0,
+        dense_kernel_size=1,
+        dilated_kernel_size=1,
+        groups=1,
+        bias=True,
+        padding_mode='zeros',
+        version='v1',
+    ):
+        super().__init__(
+            in_channels,
+            out_channels,
+            kernel_count,
+            (*stride, 1),
+            (*spatial_padding, 0),
+            dense_kernel_size,
+            dilated_kernel_size,
+            groups,
+            bias,
+            padding_mode,  
+            version,
+        )
+        self.learn_delay = learn_delay
+        torch.nn.init.constant_(self.P, (dilated_kernel_size[0] // 2)-0.01)
+        if not self.learn_delay:
+            self.P.requies_grad = False
+        if self.version == 'gauss':
+            self.SIG.requires_grad = False
+            self.sig_init = dilated_kernel_size[0]/2
+            torch.nn.init.constant_(self.SIG, self.sig_init)
+            
+    def decrease_sig(self, epoch, epochs):
+        if self.version == 'gauss':
+            final_epoch = (1*epochs)//4
+            final_sig = 0.23
+            sig = self.SIG[0, 0, 0, 0, 0, 0].detach().cpu().item()
+            alpha = (final_sig/self.sig_init)**(1/final_epoch)
+            if epoch < final_epoch and sig > final_sig:
+                self.SIG *= alpha
+
+    def forward(self, x):
+        x = x.permute(0, 2, 3, 4, 1) # [N, T, C, H, W] -> [N, C, H, W, T]
+        x = F.pad(x, (self.dilated_kernel_size[0]-1, 0), mode='constant', value=0)
+        x = super().forward(x)
+        x = x.permute(0, 4, 1, 2, 3) # [N, C, H, W, T] -> [N, T, C, H, W]
+        return x
 
 
 class SCNNlayer(nn.Module):
@@ -144,7 +200,22 @@ class SBasicBlock(nn.Module):
     """ Spiking Resnet basic block
         ann mode if ann=True
     """ 
-    def __init__(self, args, height, width, in_channels, out_channels, kernel_size, dilation, stride, padding, useBN, ternact, ann=False):
+    def __init__(
+            self,
+            args,
+            height,
+            width,
+            in_channels,
+            out_channels,
+            kernel_size, 
+            dilation,
+            stride, 
+            padding, 
+            useBN, 
+            ternact, 
+            ann=False, 
+            delayed=False
+        ):
         super(SBasicBlock, self).__init__()
         self.ann = ann
         self.height = height
@@ -159,6 +230,7 @@ class SBasicBlock(nn.Module):
         self.in_channels = in_channels
         self.out_channels = out_channels
         self.args = args
+        self.delayed = delayed
         if ternact:
             self.spikeact = SpikeAct_signed.apply
         else:
@@ -168,25 +240,62 @@ class SBasicBlock(nn.Module):
         if self.useBN:
             self.bn1 = nn.BatchNorm2d(out_channels)
             self.bn2 = nn.BatchNorm2d(out_channels)
-            self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding=padding, bias=False)
-            self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size, (1, 1), padding=padding, bias=False)
+            self.conv1 = self._add_conv_layer(
+                delayed=delayed,
+                in_channels=in_channels,
+                out_channels=out_channels,
+                kernel_size=kernel_size,
+                stride=stride,
+                groups=1,
+                padding=padding,
+                bias=False
+            )
+            self.conv2 = self._add_conv_layer(
+                delayed=delayed,
+                in_channels=out_channels,
+                out_channels=out_channels,
+                kernel_size=kernel_size,
+                stride=(1, 1),
+                groups=1,
+                padding=padding,
+                bias=False
+            )
         else:
-            self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding=padding, bias=True)
-            self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size, (1, 1), padding=padding, bias=True)
+            self.conv1 = self._add_conv_layer(
+                delayed=delayed,
+                in_channels=in_channels,
+                out_channels=out_channels,
+                kernel_size=kernel_size,
+                stride=stride,
+                groups=1,
+                padding=padding,
+                bias=True
+            )
+            self.conv2 = self._add_conv_layer(
+                delayed=delayed,
+                in_channels=out_channels,
+                out_channels=out_channels,
+                kernel_size=kernel_size,
+                stride=(1, 1),
+                groups=1,
+                padding=padding,
+                bias=True
+            )
         
-        if self.ann:
-            ## resnet init (kaiming normal mode fanout)
-            n = out_channels * np.prod(kernel_size)
-            nn.init.normal_(self.conv1.weight, std= np.sqrt(2 / n))
-            nn.init.normal_(self.conv2.weight, std= np.sqrt(2 / n))
-            if not self.useBN:
-                nn.init.zeros_(self.conv1.bias)
-                nn.init.zeros_(self.conv2.bias)
-        else:
-            k1 = np.sqrt(6 /(self.in_channels*np.prod(self.kernel_size)))
-            k2 = np.sqrt(6 /(self.out_channels*np.prod(self.kernel_size)))
-            nn.init.uniform_(self.conv1.weight, a=-k1, b=k1)
-            nn.init.uniform_(self.conv2.weight, a=-k2, b=k2)
+        if not self.delayed:
+            if self.ann:
+                ## resnet init (kaiming normal mode fanout)
+                n = out_channels * np.prod(kernel_size)
+                nn.init.normal_(self.conv1.weight, std= np.sqrt(2 / n))
+                nn.init.normal_(self.conv2.weight, std= np.sqrt(2 / n))
+                if not self.useBN:
+                    nn.init.zeros_(self.conv1.bias)
+                    nn.init.zeros_(self.conv2.bias)
+            else:
+                k1 = np.sqrt(6 /(self.in_channels*np.prod(self.kernel_size)))
+                k2 = np.sqrt(6 /(self.out_channels*np.prod(self.kernel_size)))
+                nn.init.uniform_(self.conv1.weight, a=-k1, b=k1)
+                nn.init.uniform_(self.conv2.weight, a=-k2, b=k2)
         if self.useBN:
             nn.init.constant_(self.bn1.weight, 1)
             nn.init.constant_(self.bn1.bias, 0)
@@ -195,94 +304,133 @@ class SBasicBlock(nn.Module):
 
         if self.stride != (1,1):
             if self.useBN:
-                self.downsample = nn.Conv2d(in_channels, out_channels, (1, 1), stride, padding=(0,0), bias=False)
+                self.downsample = self._add_conv_layer(
+                    delayed=delayed,
+                    in_channels=in_channels,
+                    out_channels=out_channels,
+                    kernel_size=(1, 1),
+                    stride=stride,
+                    groups=1,
+                    padding=(0, 0),
+                    bias=False
+                )
                 self.bn3 = nn.BatchNorm2d(out_channels)
                 nn.init.constant_(self.bn3.weight, 1)
                 nn.init.constant_(self.bn3.bias, 0)
             else:
-                self.downsample = nn.Conv2d(in_channels, out_channels, (1, 1), stride, padding=(0,0), bias=True)
-            if self.ann:
-                # ## resnet init (kaiming normal mode fanout)
-                n = out_channels
-                nn.init.normal_(self.downsample.weight, std= np.sqrt(2 / n))
-                if not self.useBN:
-                    nn.init.zeros_(self.downsample.bias)
-            else:
-                k3 = np.sqrt(6 /(self.in_channels)) # kernel_size == (1,1)
-                nn.init.uniform_(self.downsample.weight, a=-k3, b=k3)
+                self.downsample = self._add_conv_layer(
+                    delayed=delayed,
+                    in_channels=in_channels,
+                    out_channels=out_channels,
+                    kernel_size=(1, 1),
+                    stride=stride,
+                    groups=1,
+                    padding=(0, 0),
+                    bias=True
+                )
+            if not self.delayed:
+                if self.ann:
+                    # ## resnet init (kaiming normal mode fanout)
+                    n = out_channels
+                    nn.init.normal_(self.downsample.weight, std= np.sqrt(2 / n))
+                    if not self.useBN:
+                        nn.init.zeros_(self.downsample.bias)
+                else:
+                    k3 = np.sqrt(6 /(self.in_channels)) # kernel_size == (1,1)
+                    nn.init.uniform_(self.downsample.weight, a=-k3, b=k3)
 
         self.clamp()
 
-
-    def forward(self, x):
-        ## x : (B, T, Cin, Y, X)
+    def _add_conv_layer(self, delayed, in_channels, out_channels,
+                        kernel_size, stride, groups, padding, bias):
+        if delayed:
+            return Dcls3_1_SJ(in_channels=in_channels, out_channels=out_channels, kernel_count=1, learn_delay=True,
+                              stride=stride, spatial_padding=padding, dense_kernel_size=kernel_size, dilated_kernel_size=(3, ),
+                              groups=groups, bias=bias, version='v1')
+        else:
+            return nn.Conv2d(in_channels, out_channels, kernel_size, stride, groups=groups, padding=padding, bias=bias)
+        
+    def _perform_conv(self, x, conv, bn=None, alpha=None, preidentity=None):
         T = x.size(1)
         B = x.size(0)
-        outputs = torch.zeros((B, T, self.out_channels, self.height, self.width), device = x.device)
-        outputs1 = torch.zeros_like(outputs)
-        mem1 = torch.zeros((B, self.out_channels, self.height, self.width), device = x.device)
-        mem2 = torch.zeros_like(mem1)
-        output_prev1 = torch.zeros_like(mem1)
-        output_prev2 = torch.zeros_like(mem1)
-
+        outputs = torch.zeros(
+            (B, T, self.out_channels, self.height, self.width), device=x.device
+        )
         if self.ann:
             x = x.contiguous()
-            identity = x.view(-1, x.size(2), x.size(3), x.size(4)) #fuse T and B dim
-            conv_all = self.conv1(identity)
-            if self.useBN:
-                conv_all = self.bn1(conv_all)
-            conv_all = torch.relu(conv_all) 
-            
-            outputs1 = conv_all
-            conv_all = self.conv2(conv_all)
-            if self.useBN:
-                conv_all = self.bn2(conv_all)
-            if self.stride != (1,1):
-                identity = self.downsample(identity)
+            identity = x.view(-1, x.size(2), x.size(3), x.size(4))
+
+            conv_all = conv(identity)
+            if bn is not None:
+                conv_all = bn(conv_all)
+            if preidentity is not None:
+                preidentity = self.downsample(preidentity)
                 if self.useBN:
-                    identity = self.bn3(identity)
-            conv_all = conv_all + identity
+                    preidentity = self.bn3(preidentity)
+                conv_all = conv_all + preidentity
             conv_all = torch.relu(conv_all)
-            conv_all = conv_all.view(B, T, conv_all.size(1), conv_all.size(2), conv_all.size(3))
-            outputs = conv_all
+            outputs = conv_all.view(
+                B, T, conv_all.size(1), conv_all.size(2), conv_all.size(3)
+            )
         else:
-            x = x.contiguous()
-            identity = x.view(-1, x.size(2), x.size(3), x.size(4)) #fuse T and B dim
+            mem = torch.zeros(
+                (B, self.out_channels, self.height, self.width), device=x.device
+            )
+            output_prev = torch.zeros_like(mem)
+            x = x.contiguous() if not self.delayed else x
+            identity = x.view(-1, x.size(2), x.size(3), x.size(4)) if not self.delayed else x
 
-            conv1 = self.conv1(identity)
-            if self.useBN:
-                conv1 = self.bn1(conv1)
-            conv1 = conv1.view(B, T, conv1.size(1), conv1.size(2), conv1.size(3))
-
-            for t in range(T):
-                ## SNN LIF
-                mem1 = torch.einsum("abcd,b->abcd", mem1, self.alpha1) # with 1 time constant per output channel #LIF NEURONS
-                mem1 = mem1 + conv1[:,t,:,:,:] - Vth * output_prev1
-                output_prev1 = self.spikeact(mem1)
-                outputs1[:,t,:,:,:] = output_prev1
-            
-            outputs1 = outputs1.contiguous()
-            input2 = outputs1.view(-1, outputs1.size(2), outputs1.size(3), outputs1.size(4)) #fuse T and B dim
-            
-            conv2 = self.conv2(input2)
-            if self.useBN:
-                conv2 = self.bn2(conv2)
-
-            if self.stride != (1,1):
-                identity = self.downsample(identity)
+            conv_all = conv(identity)
+            conv_all = conv_all.contiguous()
+            conv_all = conv_all.view(-1, conv_all.size(2), conv_all.size(3), conv_all.size(4)) if self.delayed else conv_all
+            if bn is not None:
+                conv_all = bn(conv_all)
+            if preidentity is not None:
+                preidentity = self.downsample(preidentity)
+                preidentity = preidentity.contiguous()
+                preidentity = preidentity.view(-1, preidentity.size(2), preidentity.size(3), preidentity.size(4)) if self.delayed else preidentity
                 if self.useBN:
-                    identity = self.bn3(identity)
-            conv_all = conv2 + identity
+                    preidentity = self.bn3(preidentity)
+                conv_all = conv_all + preidentity
             conv_all = conv_all.view(B, T, conv_all.size(1), conv_all.size(2), conv_all.size(3))
-            
+
             for t in range(T):
                 ## SNN LIF
-                mem2 = torch.einsum("abcd,b->abcd", mem2, self.alpha2) # with 1 time constant per output channel #LIF NEURONS
-                mem2 = mem2 + conv_all[:,t,:,:,:] - Vth * output_prev2
-                output_prev2 = self.spikeact(mem2)
-                outputs[:,t,:,:,:] = output_prev2
+                mem = torch.einsum(
+                    "abcd,b->abcd", mem, alpha
+                )  # with 1 time constant per output channel #LIF NEURONS
+                mem = mem + conv_all[:, t, :, :, :] - Vth * output_prev
+                output_prev = self.spikeact(mem)
+                outputs[:, t, :, :, :] = output_prev
 
-        return outputs, outputs1
+        return outputs
+
+    def forward(self, x):
+        if self.stride != (1, 1):
+            if self.ann:
+                preidentity = x.contiguous()
+                preidentity = preidentity.view(-1, preidentity.size(2), preidentity.size(3), preidentity.size(4))
+            else:
+                preidentity = x.contiguous() if not self.delayed else x
+                preidentity = preidentity.view(-1, preidentity.size(2), preidentity.size(3), preidentity.size(4)) if not self.delayed else preidentity
+        else:
+            preidentity = None
+        bn1 = self.bn1 if self.useBN else None
+        alpha1 = self.alpha1 if not self.ann else None
+        outputs1 = self._perform_conv(x, self.conv1, bn1, alpha1)
+
+        bn2 = self.bn2 if self.useBN else None
+        alpha2 = self.alpha2 if not self.ann else None
+        outputs2 = self._perform_conv(outputs1, self.conv2, bn2, alpha2, preidentity)
+
+        return outputs2, outputs1
+
+    def decrease_sig(self, epoch, epochs):
+        if self.delayed:
+            self.conv1.decrease_sig(epoch, epochs)
+            self.conv2.decrease_sig(epoch, epochs)
+            if self.stride != (1, 1):
+                self.downsample.decrease_sig(epoch, epochs)
 
     def clamp(self):
         if not self.ann:

@@ -18,6 +18,7 @@ parser.add_argument('-f', dest='filename', default='test', type=str, help='filen
 parser.add_argument('-t', dest='is_test', action='store_true', default=False, help='test only')
 parser.add_argument('-e', dest='epochs', default=100, type=int, help='number of training epochs')
 parser.add_argument('-a', dest='is_ann', action='store_true', default=False, help='ann network')
+parser.add_argument("-d", dest="is_delayed", action="store_true", default=False, help="delayed network")
 parser.add_argument('--actreg', default=0.0, type=float, help='activity regularization for SNNs')
 parser.add_argument('--finetune', action='store_true', default=False, help='restart training from the given model')
 parser.add_argument('--nbframes', default=30, type=int, help='nb of frames for data pre-processing')
@@ -57,7 +58,7 @@ test_dataloader = DataLoader(test_dataset, batch_size=args.batch_size, num_worke
 
 ### MODEL ##
 ###############################################################
-model = models.SCNN(args, 100, useBN=args.useBN, ternact=args.ternact, ann=args.is_ann, front=args.front, NObidirectional=args.NObidirectional, singlegate=args.singlegate, hybridsign=args.hybridsign, hybridANN=args.hybridANN)
+model = models.SCNN(args, 100, useBN=args.useBN, ternact=args.ternact, ann=args.is_ann, front=args.front, NObidirectional=args.NObidirectional, singlegate=args.singlegate, hybridsign=args.hybridsign, hybridANN=args.hybridANN, delayed=args.is_delayed,)
 model.cuda()
 
 print(model)
