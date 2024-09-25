@@ -213,6 +213,24 @@ def compute_classification_accuracy(model, dataloader, valid=False):
 
     return testaccu
 
+def adjust_state_dict(state_dict):
+    def is_changed(key):
+        return key in ["layer2_1.conv1.weight", "layer2_1.conv2.weight", "layer2_2.conv1.weight",
+                        "layer2_2.conv2.weight", "layer3_1.conv1.weight", "layer3_1.conv2.weight",
+                        "layer3_1.downsample.weight", "layer3_2.conv1.weight", "layer3_2.conv2.weight",
+                        "layer4_1.conv1.weight", "layer4_1.conv2.weight", "layer4_1.downsample.weight",
+                        "layer4_2.conv1.weight", "layer4_2.conv2.weight", "layer5_1.conv1.weight",
+                        "layer5_1.conv2.weight", "layer5_1.downsample.weight", "layer5_2.conv1.weight",
+                        "layer5_2.conv2.weight"]
+    
+    for key in state_dict:
+        if is_changed(key) and args.is_delayed:
+            param = state_dict[key]
+            param = param.unsqueeze(dim=-1)
+            state_dict[key] = param
+    
+    return state_dict
+
 
 
 ## TRAINING PARAMETERS
@@ -221,7 +239,8 @@ if not args.is_test:
     print("training filename:", args.filename)
     print("training iter:", len(train_dataloader))
     if args.finetune:
-        model.load_state_dict(torch.load(SAVE_PATH_MODEL_BEST), strict=False) # strict=False ignores the unmatching keys in both state_dict
+        state_dict = torch.load(SAVE_PATH_MODEL_BEST)
+        model.load_state_dict(adjust_state_dict(state_dict), strict=False) # strict=False ignores the unmatching keys in both state_dict
         print("FINE TUNE: ######## FILE LOADED:", SAVE_PATH_MODEL_BEST)
 
     loss_fn = torch.nn.CrossEntropyLoss().to(device)
