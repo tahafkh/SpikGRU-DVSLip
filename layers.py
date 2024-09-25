@@ -6,6 +6,7 @@ import torch
 import torch.nn as nn
 import numpy as np
 
+import torch.nn.functional as F
 from DCLS.construct.modules import Dcls3_1d
 
 Vth = 1.0
