@@ -437,7 +437,13 @@ class SBasicBlock(nn.Module):
         if not self.ann:
             self.alpha1.data.clamp_(0.,1.)
             self.alpha2.data.clamp_(0.,1.)
-        
+            
+            if self.delayed:
+                self.conv1.clamp_parameters()
+                self.conv2.clamp_parameters()
+                if self.stride != (1, 1):
+                    self.downsample.clamp_parameters()
+
 
 class SFCLayer(nn.Module):
     """ leaky integrator layer. if stateful=True, implement the stateful synapse version of the leaky integrator
