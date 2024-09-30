@@ -282,21 +282,22 @@ class SBasicBlock(nn.Module):
                 padding=padding,
                 bias=True
             )
-        
-        if not self.delayed:
-            if self.ann:
-                ## resnet init (kaiming normal mode fanout)
-                n = out_channels * np.prod(kernel_size)
-                nn.init.normal_(self.conv1.weight, std= np.sqrt(2 / n))
-                nn.init.normal_(self.conv2.weight, std= np.sqrt(2 / n))
-                if not self.useBN:
-                    nn.init.zeros_(self.conv1.bias)
-                    nn.init.zeros_(self.conv2.bias)
-            else:
-                k1 = np.sqrt(6 /(self.in_channels*np.prod(self.kernel_size)))
-                k2 = np.sqrt(6 /(self.out_channels*np.prod(self.kernel_size)))
-                nn.init.uniform_(self.conv1.weight, a=-k1, b=k1)
-                nn.init.uniform_(self.conv2.weight, a=-k2, b=k2)
+
+                
+        if self.ann:
+            ## resnet init (kaiming normal mode fanout)
+            n = out_channels * np.prod(kernel_size)
+            nn.init.normal_(self.conv1.weight, std= np.sqrt(2.0 / n))
+            nn.init.normal_(self.conv2.weight, std= np.sqrt(2.0 / n))
+            if not self.useBN:
+                nn.init.zeros_(self.conv1.bias)
+                nn.init.zeros_(self.conv2.bias)
+        else:
+            k1 = np.sqrt(6.0 /(self.in_channels*np.prod(self.kernel_size)*self._get_dilated_factor(self.conv1)))
+            k2 = np.sqrt(6.0 /(self.out_channels*np.prod(self.kernel_size)*self._get_dilated_factor(self.conv2)))
+            nn.init.uniform_(self.conv1.weight, a=-k1, b=k1)
+            nn.init.uniform_(self.conv2.weight, a=-k2, b=k2)
+            
         if self.useBN:
             nn.init.constant_(self.bn1.weight, 1)
             nn.init.constant_(self.bn1.bias, 0)
@@ -329,18 +330,20 @@ class SBasicBlock(nn.Module):
                     padding=(0, 0),
                     bias=True
                 )
-            if not self.delayed:
-                if self.ann:
-                    # ## resnet init (kaiming normal mode fanout)
-                    n = out_channels
-                    nn.init.normal_(self.downsample.weight, std= np.sqrt(2 / n))
-                    if not self.useBN:
-                        nn.init.zeros_(self.downsample.bias)
-                else:
-                    k3 = np.sqrt(6 /(self.in_channels)) # kernel_size == (1,1)
-                    nn.init.uniform_(self.downsample.weight, a=-k3, b=k3)
+            if self.ann:
+                # ## resnet init (kaiming normal mode fanout)
+                n = out_channels
+                nn.init.normal_(self.downsample.weight, std= np.sqrt(2.0 / n))
+                if not self.useBN:
+                    nn.init.zeros_(self.downsample.bias)
+            else:
+                k3 = np.sqrt(6.0 /(self.in_channels)*self._get_dilated_factor(self.downsample)) # kernel_size == (1,1)
+                nn.init.uniform_(self.downsample.weight, a=-k3, b=k3)
 
         self.clamp()
+
+    def _get_dilated_factor(self, conv):
+        return conv.dilated_kernel_size[0] if self.delayed else 1
 
     def _add_conv_layer(self, delayed, in_channels, out_channels,
                         kernel_size, stride, groups, padding, bias):
