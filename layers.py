@@ -76,9 +76,10 @@ class Dcls3_1_SJ(Dcls3_1d):
             version,
         )
         self.learn_delay = learn_delay
-        torch.nn.init.constant_(self.P, (dilated_kernel_size[0] // 2)-0.01)
         if not self.learn_delay:
             self.P.requies_grad = False
+        else:
+            torch.nn.init.constant_(self.P, (dilated_kernel_size[0] // 2)-0.01)
         if self.version == 'gauss':
             self.SIG.requires_grad = False
             self.sig_init = dilated_kernel_size[0]/2
