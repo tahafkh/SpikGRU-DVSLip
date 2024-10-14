@@ -25,6 +25,7 @@ class SCNN(nn.Module):
         hybridsign=False, 
         hybridANN=False, 
         delayed=False,
+        axonal_delay=False,
     ):
         super(SCNN, self).__init__()
         self.ann = ann
@@ -54,14 +55,14 @@ class SCNN(nn.Module):
             ternact = False
         self.layer1 = SCNNlayer(args, 44, 44, Cin1, Cin2, kernel_size_3d, dilatation3d, stride3d, padding3d, useBN=useBN, ternact=ternact, conv3d=True, ann=ann)
         self.avgpool = SAvgPool2d(args, (3,3),(2,2),(1,1), 22, Cin2, ternact=ternact, ann=ann)
-        self.layer2_1 = SBasicBlock(args, 22, 22, Cin2, Cin2, kernel_size, dilatation, stride1, padding, useBN=useBN, ternact=ternact, ann=ann, delayed=delayed)
-        self.layer2_2 = SBasicBlock(args, 22, 22, Cin2, Cin2, kernel_size, dilatation, stride1, padding, useBN=useBN, ternact=ternact, ann=ann, delayed=delayed)
-        self.layer3_1 = SBasicBlock(args, 11, 11, Cin2, Cin3, kernel_size, dilatation, stride2, padding, useBN=useBN, ternact=ternact, ann=ann, delayed=delayed)
-        self.layer3_2 = SBasicBlock(args, 11, 11, Cin3, Cin3, kernel_size, dilatation, stride1, padding, useBN=useBN, ternact=ternact, ann=ann, delayed=delayed)
-        self.layer4_1 = SBasicBlock(args, 6, 6, Cin3, Cin4, kernel_size, dilatation, stride2, padding, useBN=useBN, ternact=ternact, ann=ann, delayed=delayed)
-        self.layer4_2 = SBasicBlock(args, 6, 6, Cin4, Cin4, kernel_size, dilatation, stride1, padding, useBN=useBN, ternact=ternact, ann=ann, delayed=delayed)
-        self.layer5_1 = SBasicBlock(args, 3, 3, Cin4, Cin5, kernel_size, dilatation, stride2, padding, useBN=useBN, ternact=ternact, ann=ann, delayed=delayed)
-        self.layer5_2 = SBasicBlock(args, 3, 3, Cin5, Cin5, kernel_size, dilatation, stride1, padding, useBN=useBN, ternact=ternact, ann=ann, delayed=delayed)
+        self.layer2_1 = SBasicBlock(args, 22, 22, Cin2, Cin2, kernel_size, dilatation, stride1, padding, useBN=useBN, ternact=ternact, ann=ann, delayed=delayed, axonal_delay=axonal_delay)
+        self.layer2_2 = SBasicBlock(args, 22, 22, Cin2, Cin2, kernel_size, dilatation, stride1, padding, useBN=useBN, ternact=ternact, ann=ann, delayed=delayed, axonal_delay=axonal_delay)
+        self.layer3_1 = SBasicBlock(args, 11, 11, Cin2, Cin3, kernel_size, dilatation, stride2, padding, useBN=useBN, ternact=ternact, ann=ann, delayed=delayed, axonal_delay=axonal_delay)
+        self.layer3_2 = SBasicBlock(args, 11, 11, Cin3, Cin3, kernel_size, dilatation, stride1, padding, useBN=useBN, ternact=ternact, ann=ann, delayed=delayed, axonal_delay=axonal_delay)
+        self.layer4_1 = SBasicBlock(args, 6, 6, Cin3, Cin4, kernel_size, dilatation, stride2, padding, useBN=useBN, ternact=ternact, ann=ann, delayed=delayed, axonal_delay=axonal_delay)
+        self.layer4_2 = SBasicBlock(args, 6, 6, Cin4, Cin4, kernel_size, dilatation, stride1, padding, useBN=useBN, ternact=ternact, ann=ann, delayed=delayed, axonal_delay=axonal_delay)
+        self.layer5_1 = SBasicBlock(args, 3, 3, Cin4, Cin5, kernel_size, dilatation, stride2, padding, useBN=useBN, ternact=ternact, ann=ann, delayed=delayed, axonal_delay=axonal_delay)
+        self.layer5_2 = SBasicBlock(args, 3, 3, Cin5, Cin5, kernel_size, dilatation, stride1, padding, useBN=useBN, ternact=ternact, ann=ann, delayed=delayed, axonal_delay=axonal_delay)
         
         self.adaptavgpool = SAdaptiveAvgPool2d(args, (1,1), Cin5, ternact=ternact, ann=ann)
         self.flatten = nn.Flatten(start_dim=2, end_dim=-1) #we do not want to flatten through T (timesteps) dim
@@ -87,15 +88,14 @@ class SCNN(nn.Module):
                 self.dense = SFCLayer(args, gru_hidden_size, num_classes, ann=True, stateful=False)    
 
     def decrease_sig(self, epoch, epochs):
-        if self.delayed:
-            self.layer2_1.decrease_sig(epoch, epochs)
-            self.layer2_2.decrease_sig(epoch, epochs)
-            self.layer3_1.decrease_sig(epoch, epochs)
-            self.layer3_2.decrease_sig(epoch, epochs)
-            self.layer4_1.decrease_sig(epoch, epochs)
-            self.layer4_2.decrease_sig(epoch, epochs)
-            self.layer5_1.decrease_sig(epoch, epochs)
-            self.layer5_2.decrease_sig(epoch, epochs)   
+        self.layer2_1.decrease_sig(epoch, epochs)
+        self.layer2_2.decrease_sig(epoch, epochs)
+        self.layer3_1.decrease_sig(epoch, epochs)
+        self.layer3_2.decrease_sig(epoch, epochs)
+        self.layer4_1.decrease_sig(epoch, epochs)
+        self.layer4_2.decrease_sig(epoch, epochs)
+        self.layer5_1.decrease_sig(epoch, epochs)
+        self.layer5_2.decrease_sig(epoch, epochs)   
 
     def clamp(self):
         self.layer1.clamp()

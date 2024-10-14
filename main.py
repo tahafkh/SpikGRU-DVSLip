@@ -19,6 +19,7 @@ parser.add_argument('-t', dest='is_test', action='store_true', default=False, he
 parser.add_argument('-e', dest='epochs', default=100, type=int, help='number of training epochs')
 parser.add_argument('-a', dest='is_ann', action='store_true', default=False, help='ann network')
 parser.add_argument("-d", dest="is_delayed", action="store_true", default=False, help="delayed network")
+parser.add_argument("--axonal", dest="has_axonal_delay", action="store_true", default=False, help="axonal-delayed network")
 parser.add_argument('--actreg', default=0.0, type=float, help='activity regularization for SNNs')
 parser.add_argument('--finetune', action='store_true', default=False, help='restart training from the given model')
 parser.add_argument('--nbframes', default=30, type=int, help='nb of frames for data pre-processing')
@@ -58,7 +59,7 @@ test_dataloader = DataLoader(test_dataset, batch_size=args.batch_size, num_worke
 
 ### MODEL ##
 ###############################################################
-model = models.SCNN(args, 100, useBN=args.useBN, ternact=args.ternact, ann=args.is_ann, front=args.front, NObidirectional=args.NObidirectional, singlegate=args.singlegate, hybridsign=args.hybridsign, hybridANN=args.hybridANN, delayed=args.is_delayed,)
+model = models.SCNN(args, 100, useBN=args.useBN, ternact=args.ternact, ann=args.is_ann, front=args.front, NObidirectional=args.NObidirectional, singlegate=args.singlegate, hybridsign=args.hybridsign, hybridANN=args.hybridANN, delayed=args.is_delayed, axonal_delay=args.has_axonal_delay)
 model.cuda()
 
 print(model)
@@ -214,6 +215,7 @@ def compute_classification_accuracy(model, dataloader, valid=False):
     return testaccu
 
 def adjust_state_dict(state_dict):
+    ## TODO: FIX ME!
     def is_changed(key):
         return key in ["layer2_1.conv1.weight", "layer2_1.conv2.weight", "layer2_2.conv1.weight",
                         "layer2_2.conv2.weight", "layer3_1.conv1.weight", "layer3_1.conv2.weight",

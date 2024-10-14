@@ -53,8 +53,8 @@ class Dcls3_1_SJ(Dcls3_1d):
         out_channels,
         kernel_count,
         learn_delay=True,
-        stride=1,
-        spatial_padding=0,
+        stride=(1, 1),
+        spatial_padding=(0, 0),
         dense_kernel_size=1,
         dilated_kernel_size=1,
         groups=1,
@@ -197,6 +197,48 @@ class SCNNlayer(nn.Module):
         if not self.ann:
             self.alpha.data.clamp_(0.,1.)
 
+class DelayedConv(nn.Module):
+    def __init__(self, in_planes, out_planes, kernel_size, stride, bias, delayed=True):
+        super(DelayedConv, self).__init__()
+        self.delayed = delayed
+        self.conv = nn.Conv2d(in_planes, out_planes, kernel_size=kernel_size, 
+                                    stride=stride, padding=(kernel_size[0] // 2, kernel_size[0] // 2), bias=bias)
+        if self.delayed:
+            self.delay = Dcls3_1_SJ(
+                in_channels=in_planes,
+                out_channels=in_planes,
+                kernel_count=1,
+                learn_delay=True,
+                spatial_padding=(1 // 2, 1 // 2),
+                dense_kernel_size=1,
+                dilated_kernel_size=(3, ),
+                groups=in_planes,
+                bias=False,
+                version="v1",
+            )
+            torch.nn.init.constant_(self.delay.weight, 1)
+            self.delay.weight.requies_grad = False
+
+    def _get_dilated_factor(self):
+        return self.delay.dilated_kernel_size[0] if self.delayed else 1
+
+    def forward(self, x):
+        if self.delayed:
+            x = self.delay(x)
+        
+        T = x.size(1)
+        B = x.size(0)
+        x = x.reshape(-1, x.size(2), x.size(3), x.size(4))
+        x = self.conv(x)
+        return x.reshape(B, T, x.size(1), x.size(2), x.size(3))
+
+    def clamp_parameters(self):
+        if self.delayed:
+            self.delay.clamp_parameters()
+
+    def decrease_sig(self, epoch, epochs):
+        if self.delayed:
+            self.delay.decrease_sig(epoch, epochs)
 
 class SBasicBlock(nn.Module):
     """ Spiking Resnet basic block
@@ -216,7 +258,8 @@ class SBasicBlock(nn.Module):
             useBN, 
             ternact, 
             ann=False, 
-            delayed=False
+            delayed=False,
+            axonal_delay=False,
         ):
         super(SBasicBlock, self).__init__()
         self.ann = ann
@@ -244,42 +287,42 @@ class SBasicBlock(nn.Module):
             self.bn2 = nn.BatchNorm2d(out_channels)
             self.conv1 = self._add_conv_layer(
                 delayed=delayed,
+                axonal_delay=axonal_delay,
                 in_channels=in_channels,
                 out_channels=out_channels,
                 kernel_size=kernel_size,
                 stride=stride,
-                groups=1,
                 padding=padding,
                 bias=False
             )
             self.conv2 = self._add_conv_layer(
                 delayed=delayed,
+                axonal_delay=axonal_delay,
                 in_channels=out_channels,
                 out_channels=out_channels,
                 kernel_size=kernel_size,
                 stride=(1, 1),
-                groups=1,
                 padding=padding,
                 bias=False
             )
         else:
             self.conv1 = self._add_conv_layer(
                 delayed=delayed,
+                axonal_delay=axonal_delay,
                 in_channels=in_channels,
                 out_channels=out_channels,
                 kernel_size=kernel_size,
                 stride=stride,
-                groups=1,
                 padding=padding,
                 bias=True
             )
             self.conv2 = self._add_conv_layer(
                 delayed=delayed,
+                axonal_delay=axonal_delay,
                 in_channels=out_channels,
                 out_channels=out_channels,
                 kernel_size=kernel_size,
                 stride=(1, 1),
-                groups=1,
                 padding=padding,
                 bias=True
             )
@@ -288,16 +331,18 @@ class SBasicBlock(nn.Module):
         if self.ann:
             ## resnet init (kaiming normal mode fanout)
             n = out_channels * np.prod(kernel_size)
-            nn.init.normal_(self.conv1.weight, std= np.sqrt(2.0 / n))
-            nn.init.normal_(self.conv2.weight, std= np.sqrt(2.0 / n))
+            nn.init.normal_(self.conv1.conv.weight, std= np.sqrt(2.0 / n))
+            nn.init.normal_(self.conv2.conv.weight, std= np.sqrt(2.0 / n))
             if not self.useBN:
-                nn.init.zeros_(self.conv1.bias)
-                nn.init.zeros_(self.conv2.bias)
+                nn.init.zeros_(self.conv1.conv.bias)
+                nn.init.zeros_(self.conv2.conv.bias)
         else:
             k1 = np.sqrt(6.0 /(self.in_channels*np.prod(self.kernel_size)*self._get_dilated_factor(self.conv1)))
             k2 = np.sqrt(6.0 /(self.out_channels*np.prod(self.kernel_size)*self._get_dilated_factor(self.conv2)))
-            nn.init.uniform_(self.conv1.weight, a=-k1, b=k1)
-            nn.init.uniform_(self.conv2.weight, a=-k2, b=k2)
+            conv1_weights = self.conv1.conv if axonal_delay else self.conv1
+            conv2_weights = self.conv2.conv if axonal_delay else self.conv2
+            nn.init.uniform_(conv1_weights.weight, a=-k1, b=k1)
+            nn.init.uniform_(conv2_weights.weight, a=-k2, b=k2)
             
         if self.useBN:
             nn.init.constant_(self.bn1.weight, 1)
@@ -309,11 +354,11 @@ class SBasicBlock(nn.Module):
             if self.useBN:
                 self.downsample = self._add_conv_layer(
                     delayed=delayed,
+                    axonal_delay=axonal_delay,
                     in_channels=in_channels,
                     out_channels=out_channels,
                     kernel_size=(1, 1),
                     stride=stride,
-                    groups=1,
                     padding=(0, 0),
                     bias=False
                 )
@@ -323,37 +368,38 @@ class SBasicBlock(nn.Module):
             else:
                 self.downsample = self._add_conv_layer(
                     delayed=delayed,
+                    axonal_delay=axonal_delay,
                     in_channels=in_channels,
                     out_channels=out_channels,
                     kernel_size=(1, 1),
                     stride=stride,
-                    groups=1,
                     padding=(0, 0),
                     bias=True
                 )
             if self.ann:
                 # ## resnet init (kaiming normal mode fanout)
                 n = out_channels
-                nn.init.normal_(self.downsample.weight, std= np.sqrt(2.0 / n))
+                nn.init.normal_(self.downsample.conv.weight, std= np.sqrt(2.0 / n))
                 if not self.useBN:
-                    nn.init.zeros_(self.downsample.bias)
+                    nn.init.zeros_(self.downsample.conv.bias)
             else:
                 k3 = np.sqrt(6.0 /(self.in_channels)*self._get_dilated_factor(self.downsample)) # kernel_size == (1,1)
-                nn.init.uniform_(self.downsample.weight, a=-k3, b=k3)
+                downsample_weights = self.downsample.conv if axonal_delay else self.downsample
+                nn.init.uniform_(downsample_weights.weight, a=-k3, b=k3)
 
         self.clamp()
 
     def _get_dilated_factor(self, conv):
-        return conv.dilated_kernel_size[0] if self.delayed else 1
+        return conv.dilated_kernel_size[0] if self.delayed else conv._get_dilated_factor()
 
-    def _add_conv_layer(self, delayed, in_channels, out_channels,
-                        kernel_size, stride, groups, padding, bias):
+    def _add_conv_layer(self, delayed, axonal_delay, in_channels, out_channels,
+                        kernel_size, stride, padding, bias):
         if delayed:
             return Dcls3_1_SJ(in_channels=in_channels, out_channels=out_channels, kernel_count=1, learn_delay=True,
                               stride=stride, spatial_padding=padding, dense_kernel_size=kernel_size, dilated_kernel_size=(3, ),
-                              groups=groups, bias=bias, version='v1')
+                              groups=1, bias=bias, version='v1')
         else:
-            return nn.Conv2d(in_channels, out_channels, kernel_size, stride, groups=groups, padding=padding, bias=bias)
+            return DelayedConv(in_channels, out_channels, kernel_size, stride, bias, delayed=axonal_delay)
         
     def _perform_conv(self, x, conv, bn=None, alpha=None, preidentity=None):
         T = x.size(1)
@@ -361,43 +407,28 @@ class SBasicBlock(nn.Module):
         outputs = torch.zeros(
             (B, T, self.out_channels, self.height, self.width), device=x.device
         )
-        if self.ann:
-            x = x.contiguous()
-            identity = x.view(-1, x.size(2), x.size(3), x.size(4))
 
-            conv_all = conv(identity)
-            if bn is not None:
-                conv_all = bn(conv_all)
-            if preidentity is not None:
-                preidentity = self.downsample(preidentity)
-                if self.useBN:
-                    preidentity = self.bn3(preidentity)
-                conv_all = conv_all + preidentity
-            conv_all = torch.relu(conv_all)
-            outputs = conv_all.view(
-                B, T, conv_all.size(1), conv_all.size(2), conv_all.size(3)
-            )
+        conv_all = conv(x)
+        conv_all = conv_all.reshape(-1, conv_all.size(2), conv_all.size(3), conv_all.size(4))
+        if bn is not None:
+            conv_all = bn(conv_all)
+        if preidentity is not None:
+            preidentity = self.downsample(preidentity)
+            preidentity = preidentity.reshape(-1, preidentity.size(2), preidentity.size(3), preidentity.size(4))
+            if self.useBN:
+                preidentity = self.bn3(preidentity)
+            conv_all = conv_all + preidentity
+        conv_all = conv_all.reshape(
+            B, T, conv_all.size(1), conv_all.size(2), conv_all.size(3)
+        )
+        
+        if self.ann:
+            outputs = torch.relu(conv_all)
         else:
             mem = torch.zeros(
                 (B, self.out_channels, self.height, self.width), device=x.device
             )
             output_prev = torch.zeros_like(mem)
-            x = x.contiguous() if not self.delayed else x
-            identity = x.view(-1, x.size(2), x.size(3), x.size(4)) if not self.delayed else x
-
-            conv_all = conv(identity)
-            conv_all = conv_all.contiguous()
-            conv_all = conv_all.view(-1, conv_all.size(2), conv_all.size(3), conv_all.size(4)) if self.delayed else conv_all
-            if bn is not None:
-                conv_all = bn(conv_all)
-            if preidentity is not None:
-                preidentity = self.downsample(preidentity)
-                preidentity = preidentity.contiguous()
-                preidentity = preidentity.view(-1, preidentity.size(2), preidentity.size(3), preidentity.size(4)) if self.delayed else preidentity
-                if self.useBN:
-                    preidentity = self.bn3(preidentity)
-                conv_all = conv_all + preidentity
-            conv_all = conv_all.view(B, T, conv_all.size(1), conv_all.size(2), conv_all.size(3))
 
             for t in range(T):
                 ## SNN LIF
@@ -411,15 +442,7 @@ class SBasicBlock(nn.Module):
         return outputs
 
     def forward(self, x):
-        if self.stride != (1, 1):
-            if self.ann:
-                preidentity = x.contiguous()
-                preidentity = preidentity.view(-1, preidentity.size(2), preidentity.size(3), preidentity.size(4))
-            else:
-                preidentity = x.contiguous() if not self.delayed else x
-                preidentity = preidentity.view(-1, preidentity.size(2), preidentity.size(3), preidentity.size(4)) if not self.delayed else preidentity
-        else:
-            preidentity = None
+        preidentity = x if self.stride != (1, 1) else None
         bn1 = self.bn1 if self.useBN else None
         alpha1 = self.alpha1 if not self.ann else None
         outputs1 = self._perform_conv(x, self.conv1, bn1, alpha1)
@@ -431,22 +454,20 @@ class SBasicBlock(nn.Module):
         return outputs2, outputs1
 
     def decrease_sig(self, epoch, epochs):
-        if self.delayed:
-            self.conv1.decrease_sig(epoch, epochs)
-            self.conv2.decrease_sig(epoch, epochs)
-            if self.stride != (1, 1):
-                self.downsample.decrease_sig(epoch, epochs)
+        self.conv1.decrease_sig(epoch, epochs)
+        self.conv2.decrease_sig(epoch, epochs)
+        if self.stride != (1, 1):
+            self.downsample.decrease_sig(epoch, epochs)
 
     def clamp(self):
         if not self.ann:
             self.alpha1.data.clamp_(0.,1.)
             self.alpha2.data.clamp_(0.,1.)
             
-            if self.delayed:
-                self.conv1.clamp_parameters()
-                self.conv2.clamp_parameters()
-                if self.stride != (1, 1):
-                    self.downsample.clamp_parameters()
+        self.conv1.clamp_parameters()
+        self.conv2.clamp_parameters()
+        if self.stride != (1, 1):
+            self.downsample.clamp_parameters()
 
 
 class SFCLayer(nn.Module):
