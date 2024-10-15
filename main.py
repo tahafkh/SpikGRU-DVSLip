@@ -226,10 +226,14 @@ def adjust_state_dict(state_dict):
                         "layer5_2.conv2.weight"]
     
     for key in state_dict:
-        if is_changed(key) and args.is_delayed:
-            param = state_dict[key]
-            param = param.unsqueeze(dim=-1)
-            state_dict[key] = param
+        if is_changed(key):
+            if args.is_delayed:
+                param = state_dict[key]
+                param = param.unsqueeze(dim=-1)
+                state_dict[key] = param
+            elif args.has_axonal_delay:
+                new_key = key[:-7] + ".conv.weight"
+                state_dict[new_key] = state_dict[key]
     
     return state_dict
 

@@ -77,7 +77,7 @@ class Dcls3_1_SJ(Dcls3_1d):
         )
         self.learn_delay = learn_delay
         if not self.learn_delay:
-            self.P.requies_grad = False
+            self.P.requires_grad = False
         else:
             torch.nn.init.constant_(self.P, (dilated_kernel_size[0] // 2)-0.01)
         if self.version == 'gauss':
@@ -217,7 +217,7 @@ class DelayedConv(nn.Module):
                 version="v1",
             )
             torch.nn.init.constant_(self.delay.weight, 1)
-            self.delay.weight.requies_grad = False
+            self.delay.weight.requires_grad = False
 
     def _get_dilated_factor(self):
         return self.delay.dilated_kernel_size[0] if self.delayed else 1
