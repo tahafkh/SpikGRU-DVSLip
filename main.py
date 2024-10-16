@@ -225,7 +225,8 @@ def adjust_state_dict(state_dict):
                         "layer5_1.conv2.weight", "layer5_1.downsample.weight", "layer5_2.conv1.weight",
                         "layer5_2.conv2.weight"]
     
-    for key in state_dict:
+    keys = list(state_dict.keys())
+    for key in keys:
         if is_changed(key):
             if args.is_delayed:
                 param = state_dict[key]
@@ -233,7 +234,7 @@ def adjust_state_dict(state_dict):
                 state_dict[key] = param
             elif args.has_axonal_delay:
                 new_key = key[:-7] + ".conv.weight"
-                state_dict[new_key] = state_dict[key]
+                state_dict[new_key] = state_dict.pop(key)
     
     return state_dict
 
