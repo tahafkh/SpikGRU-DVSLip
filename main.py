@@ -41,6 +41,7 @@ args = parser.parse_args()
 device = torch.device("cuda:0")
 dtype = torch.float
 SAVE_PATH_MODEL_BEST = os.getcwd() + '/' + args.filename + '.pt'
+IS_CHANGED = False
 
 ## DATASET
 ####################################################################
@@ -227,7 +228,7 @@ def adjust_state_dict(state_dict):
     
     keys = list(state_dict.keys())
     for key in keys:
-        if is_changed(key):
+        if is_changed(key) and IS_CHANGED:
             if args.is_delayed:
                 param = state_dict[key]
                 param = param.unsqueeze(dim=-1)
