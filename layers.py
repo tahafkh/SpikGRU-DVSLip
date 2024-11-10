@@ -93,6 +93,9 @@ class Dcls3_1_SJ(Dcls3_1d):
             alpha = (final_sig/self.sig_init)**(1/final_epoch)
             if epoch < final_epoch and sig > final_sig:
                 self.SIG *= alpha
+    
+    def round_pos(self):
+        self.P.round_()
 
     def forward(self, x):
         x = x.permute(0, 2, 3, 4, 1) # [N, T, C, H, W] -> [N, C, H, W, T]
@@ -239,6 +242,10 @@ class DelayedConv(nn.Module):
     def decrease_sig(self, epoch, epochs):
         if self.delayed:
             self.delay.decrease_sig(epoch, epochs)
+
+    def round_pos(self):
+        if self.delayed:
+            self.delay.round_pos()
 
 class SBasicBlock(nn.Module):
     """ Spiking Resnet basic block
@@ -468,6 +475,12 @@ class SBasicBlock(nn.Module):
         self.conv2.clamp_parameters()
         if self.stride != (1, 1):
             self.downsample.clamp_parameters()
+
+    def round_pos(self):
+        self.conv1.round_pos()
+        self.conv2.round_pos()
+        if self.stride != (1, 1):
+            self.downsample.round_pos()
 
 
 class SFCLayer(nn.Module):

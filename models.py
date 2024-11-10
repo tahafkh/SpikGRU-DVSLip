@@ -111,6 +111,16 @@ class SCNN(nn.Module):
             self.gru.clamp()
         self.dense.clamp()
 
+    def round_pos(self):
+        self.layer2_1.round_pos()
+        self.layer2_2.round_pos()
+        self.layer3_1.round_pos()
+        self.layer3_2.round_pos()
+        self.layer4_1.round_pos()
+        self.layer4_2.round_pos()
+        self.layer5_1.round_pos()
+        self.layer5_2.round_pos() 
+
     def forward(self, x):
         # In: (N, T, Cin, X, Y)
         out1 = self.layer1(x)
