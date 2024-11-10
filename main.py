@@ -36,12 +36,17 @@ parser.add_argument('--hybridANN', action='store_true', default=False, help='hyb
 parser.add_argument('--nowarmup', action='store_true', default=False, help='no warmup epoch')
 parser.add_argument('--Tnbmask', default=6, type=int, help='nb of masks for temporal data augmentation')
 parser.add_argument('--Tmaxmasklength', default=18, type=int, help='maximale length of each mask for temporal data augmentation')
+parser.add_argument("--round", action="store_true", default=False, help="round positions")
+parser.add_argument('--checkpoint_name', type=str, help="checkpoint model name")
+parser.add_argument("--change", action="store_true", default=False, help="change state dict")
 
 args = parser.parse_args()
 device = torch.device("cuda:0")
 dtype = torch.float
 SAVE_PATH_MODEL_BEST = os.getcwd() + '/' + args.filename + '.pt'
 IS_CHANGED = False
+
+MODEL_BASE_PATH = os.path.expanduser('~/paper_runs')
 
 ## DATASET
 ####################################################################
@@ -293,7 +298,30 @@ if not args.is_test:
     
     train(model, loss_fn, optimizer, train_dataloader, test_dataloader, args.epochs, scheduler, warmup_epochs)
 
+else:
+    model_path = os.path.join(MODEL_BASE_PATH, args.checkpoint_name + '.pt')
+    model_state_dict = torch.load(model_path, map_location='cuda')
+    if 'model' in model_state_dict.keys():
+        model_state_dict = model_state_dict['model']
+    if args.change:
+        keys = list(model_state_dict.keys())
+        for key in keys:
+            new_key = key
+            if 'downsample' in key:
+                new_key = key.replace('downsample.', 'downsample.conv.')
+            elif 'conv' in key and 'layer' in key and '_' in key:
+                phrases = key.rsplit('.', 1)
+                new_key = phrases[0] + '.conv.' + phrases[1]
+            model_state_dict[new_key] = model_state_dict.pop(key)
 
+    model.load_state_dict(model_state_dict, strict=True)
+    if args.round:
+        with torch.no_grad():
+            model.round_pos()
+    print(f'Total number of parameters: {sum(p.numel() for p in model.parameters())}')
+    valid_accuracy = compute_classification_accuracy(model, test_dataloader, valid=True)
+    print(f'Test Accuracy: {valid_accuracy}')
+    print('###############################')
 ## LOAD MODEL AND FINAL TEST
 ######################################
 # model.load_state_dict(torch.load(SAVE_PATH_MODEL_BEST), strict=True)
