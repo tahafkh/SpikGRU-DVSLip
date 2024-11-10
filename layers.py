@@ -346,8 +346,8 @@ class SBasicBlock(nn.Module):
         else:
             k1 = np.sqrt(6.0 /(self.in_channels*np.prod(self.kernel_size)*self._get_dilated_factor(self.conv1)))
             k2 = np.sqrt(6.0 /(self.out_channels*np.prod(self.kernel_size)*self._get_dilated_factor(self.conv2)))
-            conv1_weights = self.conv1.conv if axonal_delay else self.conv1
-            conv2_weights = self.conv2.conv if axonal_delay else self.conv2
+            conv1_weights = self.conv1.conv if not delayed else self.conv1
+            conv2_weights = self.conv2.conv if not delayed else self.conv2
             nn.init.uniform_(conv1_weights.weight, a=-k1, b=k1)
             nn.init.uniform_(conv2_weights.weight, a=-k2, b=k2)
             
@@ -391,7 +391,7 @@ class SBasicBlock(nn.Module):
                     nn.init.zeros_(self.downsample.conv.bias)
             else:
                 k3 = np.sqrt(6.0 /(self.in_channels)*self._get_dilated_factor(self.downsample)) # kernel_size == (1,1)
-                downsample_weights = self.downsample.conv if axonal_delay else self.downsample
+                downsample_weights = self.downsample.conv if not delayed else self.downsample
                 nn.init.uniform_(downsample_weights.weight, a=-k3, b=k3)
 
         self.clamp()
