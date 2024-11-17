@@ -201,13 +201,14 @@ class SCNNlayer(nn.Module):
             self.alpha.data.clamp_(0.,1.)
 
 class DelayedConv(nn.Module):
-    def __init__(self, in_planes, out_planes, kernel_size, stride, bias, delayed=True):
+    def __init__(self, in_planes, out_planes, kernel_size, stride, bias, axonal_delay=True, dendritic_delay=True):
         super(DelayedConv, self).__init__()
-        self.delayed = delayed
+        self.axonal_delay = axonal_delay
+        self.dendritic_delay = dendritic_delay
         self.conv = nn.Conv2d(in_planes, out_planes, kernel_size=kernel_size, 
                                     stride=stride, padding=(kernel_size[0] // 2, kernel_size[0] // 2), bias=bias)
-        if self.delayed:
-            self.delay = Dcls3_1_SJ(
+        if self.axonal_delay:
+            self.axonal = Dcls3_1_SJ(
                 in_channels=in_planes,
                 out_channels=in_planes,
                 kernel_count=1,
@@ -219,33 +220,59 @@ class DelayedConv(nn.Module):
                 bias=False,
                 version="v1",
             )
-            torch.nn.init.constant_(self.delay.weight, 1)
-            self.delay.weight.requires_grad = True
+            torch.nn.init.constant_(self.axonal.weight, 1)
+            self.axonal.weight.requires_grad = True
+
+        if self.dendritic_delay:
+            self.dendritic = Dcls3_1_SJ(
+                in_channels=out_planes,
+                out_channels=out_planes,
+                kernel_count=1,
+                learn_delay=True,
+                spatial_padding=(1 // 2, 1 // 2),
+                dense_kernel_size=1,
+                dilated_kernel_size=(3, ),
+                groups=out_planes,
+                bias=False,
+                version="v1",
+            )
+            torch.nn.init.constant_(self.dendritic.weight, 1)
+            self.dendritic.weight.requires_grad = True
 
     def _get_dilated_factor(self):
-        return self.delay.dilated_kernel_size[0] if self.delayed else 1
+        return self.axonal.dilated_kernel_size[0] if self.axonal_delay else 1
 
     def forward(self, x):
-        if self.delayed:
-            x = self.delay(x)
+        if self.axonal_delay:
+            x = self.axonal(x)
         
         T = x.size(1)
         B = x.size(0)
         x = x.reshape(-1, x.size(2), x.size(3), x.size(4))
         x = self.conv(x)
-        return x.reshape(B, T, x.size(1), x.size(2), x.size(3))
+        x = x.reshape(B, T, x.size(1), x.size(2), x.size(3))
+
+        if self.dendritic_delay:
+            x = self.dendritic(x)
+        return x
 
     def clamp_parameters(self):
-        if self.delayed:
-            self.delay.clamp_parameters()
+        if self.axonal_delay:
+            self.axonal.clamp_parameters()
+        if self.dendritic_delay:
+            self.dendritic.clamp_parameters()
 
     def decrease_sig(self, epoch, epochs):
-        if self.delayed:
-            self.delay.decrease_sig(epoch, epochs)
+        if self.axonal_delay:
+            self.axonal.decrease_sig(epoch, epochs)
+        if self.dendritic_delay:
+            self.dendritic.decrease_sig(epoch, epochs)
 
     def round_pos(self):
-        if self.delayed:
-            self.delay.round_pos()
+        if self.axonal_delay:
+            self.axonal.round_pos()
+        if self.dendritic_delay:
+            self.dendritic.round_pos()
 
 class SBasicBlock(nn.Module):
     """ Spiking Resnet basic block
@@ -267,6 +294,7 @@ class SBasicBlock(nn.Module):
             ann=False, 
             delayed=False,
             axonal_delay=False,
+            dendritic_delay=False,
         ):
         super(SBasicBlock, self).__init__()
         self.ann = ann
@@ -295,6 +323,7 @@ class SBasicBlock(nn.Module):
             self.conv1 = self._add_conv_layer(
                 delayed=delayed,
                 axonal_delay=axonal_delay,
+                dendritic_delay=dendritic_delay,
                 in_channels=in_channels,
                 out_channels=out_channels,
                 kernel_size=kernel_size,
@@ -305,6 +334,7 @@ class SBasicBlock(nn.Module):
             self.conv2 = self._add_conv_layer(
                 delayed=delayed,
                 axonal_delay=axonal_delay,
+                dendritic_delay=dendritic_delay,
                 in_channels=out_channels,
                 out_channels=out_channels,
                 kernel_size=kernel_size,
@@ -316,6 +346,7 @@ class SBasicBlock(nn.Module):
             self.conv1 = self._add_conv_layer(
                 delayed=delayed,
                 axonal_delay=axonal_delay,
+                dendritic_delay=dendritic_delay,
                 in_channels=in_channels,
                 out_channels=out_channels,
                 kernel_size=kernel_size,
@@ -326,6 +357,7 @@ class SBasicBlock(nn.Module):
             self.conv2 = self._add_conv_layer(
                 delayed=delayed,
                 axonal_delay=axonal_delay,
+                dendritic_delay=dendritic_delay,
                 in_channels=out_channels,
                 out_channels=out_channels,
                 kernel_size=kernel_size,
@@ -362,6 +394,7 @@ class SBasicBlock(nn.Module):
                 self.downsample = self._add_conv_layer(
                     delayed=delayed,
                     axonal_delay=axonal_delay,
+                    dendritic_delay=dendritic_delay,
                     in_channels=in_channels,
                     out_channels=out_channels,
                     kernel_size=(1, 1),
@@ -376,6 +409,7 @@ class SBasicBlock(nn.Module):
                 self.downsample = self._add_conv_layer(
                     delayed=delayed,
                     axonal_delay=axonal_delay,
+                    dendritic_delay=dendritic_delay,
                     in_channels=in_channels,
                     out_channels=out_channels,
                     kernel_size=(1, 1),
@@ -399,14 +433,14 @@ class SBasicBlock(nn.Module):
     def _get_dilated_factor(self, conv):
         return conv.dilated_kernel_size[0] if self.delayed else conv._get_dilated_factor()
 
-    def _add_conv_layer(self, delayed, axonal_delay, in_channels, out_channels,
+    def _add_conv_layer(self, delayed, axonal_delay, dendritic_delay, in_channels, out_channels,
                         kernel_size, stride, padding, bias):
         if delayed:
             return Dcls3_1_SJ(in_channels=in_channels, out_channels=out_channels, kernel_count=1, learn_delay=True,
                               stride=stride, spatial_padding=padding, dense_kernel_size=kernel_size, dilated_kernel_size=(3, ),
                               groups=1, bias=bias, version='v1')
         else:
-            return DelayedConv(in_channels, out_channels, kernel_size, stride, bias, delayed=axonal_delay)
+            return DelayedConv(in_channels, out_channels, kernel_size, stride, bias, axonal_delay=axonal_delay, dendritic_delay=dendritic_delay)
         
     def _perform_conv(self, x, conv, bn=None, alpha=None, preidentity=None):
         T = x.size(1)
