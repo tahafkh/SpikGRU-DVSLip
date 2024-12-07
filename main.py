@@ -320,6 +320,7 @@ else:
         with torch.no_grad():
             model.round_pos()
     print(f'Total number of parameters: {sum(p.numel() for p in model.parameters())}')
+    print(f'Total number of learnable parameters: {sum(p.numel() for p in model.parameters() if p.requires_grad)}')    
     valid_accuracy = compute_classification_accuracy(model, test_dataloader, valid=True)
     print(f'Test Accuracy: {valid_accuracy}')
     print('###############################')
